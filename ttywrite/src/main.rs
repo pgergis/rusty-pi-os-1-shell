@@ -47,6 +47,18 @@ struct Opt {
     raw: bool,
 }
 
+fn send_data<T: std::io::Read, U: std::io::Write + std::io::Read>(buf_in: &mut T, buf_out: &mut U, raw: bool) -> Result<(u64),std::io::Error> {
+    if !raw {
+        let result = Xmodem::transmit(buf_in, buf_out);
+        match result {
+            Ok(x) => Ok(x as u64),
+            Err(y) => Err(y)
+        }
+    } else {
+        std::io::copy(buf_in, buf_out)
+    }
+}
+
 fn main() {
     use std::fs::File;
     use std::io::{self, BufReader, BufRead};
@@ -55,4 +67,19 @@ fn main() {
     let mut serial = serial::open(&opt.tty_path).expect("path points to invalid TTY");
 
     // FIXME: Implement the `ttywrite` utility.
+
+    // Update Settings From Args
+    let mut tty_settings = serial.read_settings().expect("Failed to read settings");
+    tty_settings.set_baud_rate(opt.baud_rate).expect("Failed baud rate update");
+    tty_settings.set_char_size(opt.char_width);
+    tty_settings.set_flow_control(opt.flow_control);
+    tty_settings.set_stop_bits(opt.stop_bits);
+    serial.write_settings(&tty_settings).expect("Failed settings update");
+    serial.set_timeout(Duration::new(opt.timeout, 0)).expect("Invalid timeout");
+
+    // Read & Write
+    match opt.input {
+        Some(path) => send_data(&mut File::open(path).expect("Invalid filepath"), &mut serial, opt.raw),
+        None => send_data(&mut io::stdin(), &mut serial, opt.raw)
+    }.expect("Send data failed");
 }
